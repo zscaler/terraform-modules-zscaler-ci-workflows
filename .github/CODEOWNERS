@@ -1,1 +1,1 @@
-* @PaloAltoNetworks/azure-vmseries-modules-codeowners @PaloAltoNetworks/aws-vmseries-modules-codeowners @PaloAltoNetworks/gcp-vmseries-modules-codeowners
+* @zscaler/terraform-gcp-zpa-app-connector-modules-codeowners @zscaler/terraform-aws-zpa-app-connector-modules-codeowners @zscaler/terraform-azurerm-zpa-app-connector-modules-codeowners

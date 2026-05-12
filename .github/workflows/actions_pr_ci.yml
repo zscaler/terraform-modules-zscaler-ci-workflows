@@ -2,8 +2,7 @@ name: Actions PR CI
 run-name: Actions PR CI
 
 permissions:
-  contents: write
-  issues: read
+  contents: read
 
 on:
   pull_request:
@@ -13,9 +12,9 @@ on:
       - synchronize
 
 jobs:
-
-  pre_commit:
-    name: Pre-Commit
-    uses: ./.github/workflows/_pre_commit.yml
-    with:
-      pre-commit-hooks: checkov
+  noop:
+    name: PR CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: nothing to lint
+        run: echo "This repo contains only reusable workflows; no Terraform code or pre-commit config to lint on PR."

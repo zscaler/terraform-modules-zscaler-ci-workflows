@@ -87,7 +87,6 @@ flowchart
   g_diff-->v_start
   g_diff-...->a_start
   g_init-->p_start
-  g_init-->c_start
 
   v_validate-->a_start
 
@@ -95,7 +94,6 @@ flowchart
 
   t_apply_action-->g_junction
   p_pre_commit-->g_junction
-  c_checkov-->g_junction
   v_validate-->g_junction
   g_junction-->t_stop
 ```

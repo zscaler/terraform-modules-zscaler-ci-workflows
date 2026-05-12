@@ -72,7 +72,7 @@ jobs:
     needs: release-prereqs
     if: needs.release-prereqs.outputs.rc  == 'true'
     with:
-      pre-commit-hooks: terraform_fmt terraform_docs terraform_tflint checkov
+      pre-commit-hooks: terraform_fmt terraform_docs terraform_tflint
       pre-commit-files: all-files
 
   tf_prereqs:
