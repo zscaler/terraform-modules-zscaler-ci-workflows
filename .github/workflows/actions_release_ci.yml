@@ -3,7 +3,8 @@ run-name: Actions Release CI
 
 permissions:
   contents: write
-  issues: read
+  issues: write
+  pull-requests: write
 
 on:
   workflow_dispatch:
