@@ -3,6 +3,8 @@
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/zscaler/terraform-modules-zscaler-ci-workflows/actions_release_ci.yml?style=flat-square)
 ![GitHub issues](https://img.shields.io/github/issues/zscaler/terraform-modules-zscaler-ci-workflows?style=flat-square)
 ![GitHub pull requests](https://img.shields.io/github/issues-pr/zscaler/terraform-modules-zscaler-ci-workflows?style=flat-square)
+[![Automation Hub](https://img.shields.io/badge/automation-hub-blue)](https://automate.zscaler.com/docs/tools/sdk-documentation/sdk-getting-started)
+[![Zscaler Community](https://img.shields.io/badge/zscaler-community-blue)](https://community.zscaler.com/)
 
 # CI workflows used by ZPA Terraform (AWS|Azure|GCP) modules
 
