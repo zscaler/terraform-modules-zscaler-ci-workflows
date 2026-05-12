@@ -4,7 +4,24 @@
   ],
   "plugins": [
     [
-      "@semantic-release/commit-analyzer"
+      "@semantic-release/commit-analyzer",
+      {
+        "releaseRules": [
+          {
+            "breaking": true,
+            "release": "minor"
+          },
+          {
+            "type": "feat",
+            "release": "patch"
+          },
+          {
+            "type": "feat",
+            "scope": "MAJOR",
+            "release": "major"
+          }
+        ]
+      }
     ],
     "@semantic-release/release-notes-generator",
     [
@@ -19,7 +36,7 @@
     [
       "@semantic-release/github",
       {
-        "successComment": ":tada: This ${issue.pull_request ? 'PR is included' : 'issue has been resolved'} in version ${nextRelease.version} :tada:\n\nThe release is available on [Terraform Registry](https://registry.terraform.io/modules/zscaler/zpa-app-connector-modules/azurerm/latest) and [GitHub release](../releases/tag/v${nextRelease.version})\n\n> Posted by [semantic-release](https://github.com/semantic-release/semantic-release) bot"
+        "successComment": ":tada: This ${issue.pull_request ? 'PR is included' : 'issue has been resolved'} in version ${nextRelease.version} :tada:\n\nThe release is available on the [GitHub release page](../releases/tag/v${nextRelease.version}).\n\n> Posted by [semantic-release](https://github.com/semantic-release/semantic-release) bot"
       }
     ]
   ],
