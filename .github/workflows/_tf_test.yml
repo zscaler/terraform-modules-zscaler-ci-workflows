@@ -97,7 +97,7 @@ jobs:
         path: ${{ fromJson(needs.prerequisites.outputs.paths) }}
     steps:
       - name: checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ inputs.commitsha }}
           repository: ${{ inputs.repository }}
@@ -152,6 +152,11 @@ jobs:
         timeout-minutes: ${{ inputs.apply_timeout }}
         uses: ./.github/actions/terratest
         env:
+          # Two GCP auth modes — caller picks via secrets:
+          #   - JSON key:  set GCP_CREDENTIALS_JSON. Simplest.
+          #   - WIF:       set WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT.
+          # The consumer-repo's local `actions/terratest` chooses based on what's set.
+          GCP_CREDENTIALS_JSON:       ${{ secrets.GCP_CREDENTIALS_JSON }}
           WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           GCP_SERVICE_ACCOUNT:        ${{ secrets.GCP_SERVICE_ACCOUNT }}
           PROJECT_ID:                 ${{ secrets.PROJECT_ID }}
@@ -178,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: cleanup Azure Subscription
         if: inputs.cloud == 'azure'
@@ -200,6 +205,7 @@ jobs:
         with:
           pr-id: ${{ inputs.pr-id }}
         env:
+          GCP_CREDENTIALS_JSON:       ${{ secrets.GCP_CREDENTIALS_JSON }}
           WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+          GCP_SERVICE_ACCOUNT:        ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          PROJECT_ID:                 ${{ secrets.PROJECT_ID }}
