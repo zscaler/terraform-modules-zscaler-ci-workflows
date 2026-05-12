@@ -1,0 +1,65 @@
+name: (sub) Pre-Commit update
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      update_branch:
+        description: Name of a branch that will be used to introduce changes
+        type: string
+        default: pre-commit-dependencies-update
+    outputs:
+      pr_number:
+        description: A PR number if one is created or updated
+        value: ${{ jobs.update.outputs.pr_number }}
+      pr_operation:
+        description: 'An operation taken on a PR, either: created, updated, closed, or null string in case no operation was made'
+        value: ${{ jobs.update.outputs.pr_operation }}
+
+jobs:
+  update:
+    name: "Update Pre-Commit dependencies"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pr_number: ${{ steps.pr.outputs.pull-request-number }}
+      pr_operation: ${{ steps.pr.outputs.pull-request-operation }}
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: install pre-commit
+        run: python3 -m pip install -r requirements.txt
+
+      - name: update pre-commit dependencies
+        id: update
+        shell: bash
+        run: pre-commit autoupdate
+
+      - name: create pull request
+        id: pr
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
+        with:
+          add-paths: .pre-commit-config.yaml
+          branch: ${{ inputs.update_branch }}
+          commit-message: "[chore] pre-commit-dependencies-update"
+          title: "chore: Pre-Commit dependencies update"
+          delete-branch: true
+          body: |
+            # Pre-Commit Dependencies updates required
+
+            There are pre-commit dependencies waiting to be updated. Please see the `Files changed` tab for details.
+
+            Please check results of `pre-commit` test run with these updates in comments below.
+
+            <sup>*Generated automatically with GitHub Actions*</sup>

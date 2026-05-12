@@ -1,0 +1,155 @@
+name: (sub) Release CI
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      terratest_action:
+        description: The action (name of a test in Terratest) that will be passed to the Makefile's ACTION parameter
+        type: string
+        required: true
+      fail_fast:
+        description: When set to true, GitHub will cancel all in-progress and queued jobs in the matrix if any job in the matrix fails.
+        type: boolean
+        default: true
+      validate_max_parallel:
+        description: Maximum parallel jobs in matrix strategy for running validation
+        type: number
+        default: 5
+      test_max_parallel:
+        description: Maximum parallel jobs in matrix strategy for running Terratest
+        type: number
+        default: 5
+      apply_timeout:
+        description: Maximum time to run the Terraform apply step
+        type: number
+        default: 30
+      tf_version:
+        description: A space delimited list of TF versions used to run the code with
+        type: string
+        default: latest
+      cloud:
+        description: "Decide against which public cloud the code will be run. Possible values: azure, aws, gcp"
+        type: string
+        required: true
+
+jobs:
+  release-prereqs:
+    name: Verify if a release is required
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+    outputs:
+      rc: ${{ steps.rc.outputs.new_release_published }}
+    steps:
+      - name: checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: dry-run sem versioning
+        id: rc
+        uses: cycjimmy/semantic-release-action@0a51e81a6baff2acad3ee88f4121c589c73d0f0e # v4
+        with:
+          dry_run: true
+          semantic_version: 25.0
+          extra_plugins: |
+              conventional-changelog-conventionalcommits@9.1.0
+              semantic-release/git#3e934d45f97fd07a63617c0fc098c9ed3e67d97a
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: sem ver outputs
+        run: |
+          echo new_release_published - ${{ steps.rc.outputs.new_release_published }}
+          echo new_release_version - ${{ steps.rc.outputs.new_release_version }}
+          echo last_release_version - ${{ steps.rc.outputs.last_release_version }}
+
+  pre_commit:
+    name: Pre-Commit
+    uses: ./.github/workflows/_pre_commit.yml
+    needs: release-prereqs
+    if: needs.release-prereqs.outputs.rc  == 'true'
+    with:
+      pre-commit-hooks: terraform_fmt terraform_docs terraform_tflint checkov
+      pre-commit-files: all-files
+
+  tf_prereqs:
+    name: validate prerequisites
+    needs: release-prereqs
+    if: needs.release-prereqs.outputs.rc  == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.paths.outputs.modules }}
+      examples: ${{ steps.paths.outputs.examples }}
+    steps:
+      - name: checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: set outputs
+        id: paths
+        shell: bash
+        run: |
+          echo "modules=$(echo $(ls -d1 examples/* modules/*) | tr ' ' ',')" >> $GITHUB_OUTPUT
+          echo "examples=$(echo $(ls -d1 examples/*) | tr ' ' ',')" >> $GITHUB_OUTPUT
+
+  validate:
+    name: validate terraform code
+    needs: tf_prereqs
+    if: ${{ needs.tf_prereqs.outputs.modules != '' }}
+    uses: ./.github/workflows/_tf_test.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      cloud: ${{ inputs.cloud }}
+      tf_version: ${{ inputs.tf_version }}
+      paths: ${{ needs.tf_prereqs.outputs.modules }}
+      terratest_action: Validate
+      fail_fast: ${{ inputs.fail_fast }}
+      max_parallel: ${{ inputs.validate_max_parallel }}
+    secrets: inherit
+
+  test:
+    name: run ${{ inputs.terratest_action }} tests on examples
+    needs:
+      - validate
+      - tf_prereqs
+    if: ${{ needs.tf_prereqs.outputs.examples != '' }}
+    uses: ./.github/workflows/_tf_test.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      cloud: ${{ inputs.cloud }}
+      tf_version: ${{ inputs.tf_version }}
+      paths: ${{ needs.tf_prereqs.outputs.examples }}
+      terratest_action: ${{ inputs.terratest_action }}
+      fail_fast: ${{ inputs.fail_fast }}
+      max_parallel: ${{ inputs.test_max_parallel }}
+      apply_timeout: ${{ inputs.apply_timeout }}
+    secrets: inherit
+
+  release:
+    name: release sem version
+    needs:
+      - validate
+      - pre_commit
+      - test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Create release and publish
+        uses: cycjimmy/semantic-release-action@0a51e81a6baff2acad3ee88f4121c589c73d0f0e # v4
+        with:
+          semantic_version: 25.0
+          extra_plugins: |
+              conventional-changelog-conventionalcommits@9.1.0
+              semantic-release/git#3e934d45f97fd07a63617c0fc098c9ed3e67d97a
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,141 @@
+name: (sub) Pre-Commit framework run
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  workflow_call:
+    inputs:
+      pre-commit-hooks:
+        description: "Pre-commit hook list. Possible values are a combination of any of the following: terraform_fmt, terraform_docs, terraform_tflint, checkov (space spearated) "
+        type: string
+        required: true
+      pre-commit-files:
+        description: "Files for pre-commit to scan - passed dynamically via PR CI variable. "
+        type: string
+        default: "all-files"
+        required: false
+      commitsha:
+        description: Commit SHA for which the tests should run
+        type: string
+        required: false
+      repository:
+        description: Repository on which the tests should run
+        type: string
+        required: false
+
+jobs:
+  prerequisites:
+    name: prep data for matrix strategy
+    runs-on: ubuntu-latest
+    outputs:
+      pre-commit-hooks: ${{ steps.preqs.outputs.pre-commit-hooks }}
+      pre-commit-files: ${{ steps.preqs.outputs.pre-commit-files}}
+    steps:
+      - name: set outputs
+        id: preqs
+        env:
+          PRE_COMMIT_HOOKS: ${{ inputs.pre-commit-hooks }}
+          PRE_COMMIT_FILES: ${{ inputs.pre-commit-files }}
+        run: |
+          echo "pre-commit-hooks=$(echo "$PRE_COMMIT_HOOKS " | jq -R -s -c 'split(" ")[:-1]')" >> $GITHUB_OUTPUT
+          echo "pre-commit-files=$(echo "$PRE_COMMIT_FILES" | tr '\n' ' ')" >> $GITHUB_OUTPUT
+
+  pre_commit_framework:
+    needs: [prerequisites]
+    name: Pre-Commit
+    strategy:
+      matrix:
+        pre_commit_hook: ${{ fromJson(needs.prerequisites.outputs.pre-commit-hooks) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ inputs.commitsha }}
+          repository: ${{ inputs.repository }}
+
+      - name: set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_wrapper: false
+
+      - name: install TF Docs
+        if: ${{ matrix.pre_commit_hook == 'terraform_docs' }}
+        working-directory: /tmp
+        run: |
+          curl -sL https://github.com/terraform-docs/terraform-docs/releases/download/v0.23.0/terraform-docs-v0.23.0-linux-amd64.tar.gz > terraform-docs.tar.gz 
+          tar zxf terraform-docs.tar.gz
+          mv terraform-docs /usr/local/bin/
+          terraform-docs --version
+
+      - name: install TF Lint
+        if: ${{ matrix.pre_commit_hook == 'terraform_tflint' }}
+        working-directory: /tmp
+        run: |
+          curl -sL https://github.com/terraform-linters/tflint/releases/download/v0.62.0/tflint_linux_amd64.zip > tflint.zip
+          unzip tflint.zip
+          mv tflint /usr/local/bin/
+          tflint --version
+
+      - name: install pre-commit
+        run: python3 -m pip install -r requirements.txt
+
+      - name: cache pre-commit dependencies
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: ~/.cache/pre-commit
+          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: ${{ runner.os }}-pre-commit-
+
+      - name: run pre-commit terraform_fmt
+        shell: bash
+        if: ${{ matrix.pre_commit_hook == 'terraform_fmt' }}
+        env:
+          INPUT_FILES: ${{ inputs.pre-commit-files }}
+        run: |
+          if grep -q "all-files" <<< "$INPUT_FILES"; then
+            pre-commit run ${{ matrix.pre_commit_hook }} -a
+          else
+            pre-commit run ${{ matrix.pre_commit_hook }} --files ${{ needs.prerequisites.outputs.pre-commit-files }}
+          fi
+
+      - name: run pre-commit terraform_tflint
+        shell: bash
+        if: ${{ matrix.pre_commit_hook == 'terraform_tflint' }}
+        env:
+          INPUT_FILES: ${{ inputs.pre-commit-files }}
+        run: |
+          if grep -q "all-files" <<< "$INPUT_FILES"; then
+            pre-commit run ${{ matrix.pre_commit_hook }} -a
+          else
+            pre-commit run ${{ matrix.pre_commit_hook }} --files ${{ needs.prerequisites.outputs.pre-commit-files }}
+          fi
+
+      - name: run pre-commit terraform_docs
+        shell: bash
+        if: ${{ matrix.pre_commit_hook == 'terraform_docs' }}
+        env:
+          INPUT_FILES: ${{ inputs.pre-commit-files }}
+        run: |
+          if grep -q "all-files" <<< "$INPUT_FILES"; then
+            pre-commit run ${{ matrix.pre_commit_hook }} -a
+          else
+            pre-commit run ${{ matrix.pre_commit_hook }} --files ${{ needs.prerequisites.outputs.pre-commit-files }}
+          fi
+
+      - name: run pre-commit for checkov
+        shell: bash
+        if: ${{ contains(matrix.pre_commit_hook, 'checkov') }}
+        run: |
+          pre-commit run checkov -a

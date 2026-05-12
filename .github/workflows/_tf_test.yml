@@ -1,0 +1,205 @@
+name: (sub) Terratest
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  workflow_call:
+    inputs:
+      tf_version:
+        description: Version of TF we validate with, a space delimited list.
+        type: string
+        required: true
+      paths:
+        description: Path to module that will be tested, a space delimited list of relative paths
+        type: string
+        required: true
+      terratest_action:
+        description: The action (name of a test in Terratest) that will be passed to the Makefile's ACTION parameter
+        type: string
+        required: true
+      fail_fast:
+        description: When set to true, GitHub will cancel all in-progress and queued jobs in the matrix if any job in the matrix fails.
+        type: boolean
+        default: true
+      max_parallel:
+        description: Maximum parallel jobs in matrix strategy
+        type: number
+        default: 10
+      cloud:
+        description: "Decide against which public cloud the code will be run. Possible values: azure, aws, gcp"
+        type: string
+        required: true
+      apply_timeout:
+        description: Maximum time to run the Terraform apply step
+        type: number
+        default: 30
+      commitsha:
+        description: Commit SHA for which the tests should run
+        type: string
+        required: false
+      repository:
+        description: Repository on which the tests should run
+        type: string
+        required: false
+      pr-id:
+        description: A PR number. Optional value, you might want to use it to prefix resources created for a particular PR to identify them easly.
+        type: string
+        default: ""
+        required: false
+
+jobs:
+  prerequisites:
+    name: prep data for matrix strategy
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.preqs.outputs.paths }}
+      tf_versions: ${{ steps.preqs.outputs.tf_versions }}
+    env:
+      PATHS: ${{ inputs.paths }}
+      TFVER: ${{ inputs.tf_version }}
+    steps:
+      - name: set outputs
+        id: preqs
+        run: |
+          echo paths $PATHS
+          echo tf versions $TFVER
+
+          echo
+          echo paths formatted as JSON
+          echo -n "$PATHS" | jq -R -s -c 'split(",")'
+
+          echo
+          echo tf versions formatted as JSON
+          echo "$TFVER " | jq -R -s -c 'split(" ")[:-1]'
+
+          echo "paths=$(echo -n "$PATHS" | jq -R -s -c 'split(",")')" >> $GITHUB_OUTPUT
+          echo "tf_versions=$(echo "$TFVER " | jq -R -s -c 'split(" ")[:-1]')" >> $GITHUB_OUTPUT
+
+  terraform:
+    needs: prerequisites
+    name: "${{ inputs.terratest_action }} ${{ matrix.path }}@${{ matrix.tf_version }}"
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    env:
+      cngfw_exclude: "['examples/cloudngfw_isolated_design', 'examples/cloudngfw_combined_design', 'examples/cloudngfw_centralized_design', 'examples/cloudngfw_distributed_design']"
+    strategy:
+      max-parallel: ${{ inputs.max_parallel }}
+      fail-fast: ${{ inputs.fail_fast }}
+      matrix:
+        tf_version: ${{ fromJson(needs.prerequisites.outputs.tf_versions) }}
+        path: ${{ fromJson(needs.prerequisites.outputs.paths) }}
+    steps:
+      - name: checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ inputs.commitsha }}
+          repository: ${{ inputs.repository }}
+
+      # Zscaler ZPA / ZIA / ZCC / ZTW providers all share the same OneAPI
+      # credential set sourced from Zidentity. Every cloud-specific step
+      # below inherits these via the env: block on the job, so we don't have
+      # to repeat them on each step. Legacy (per-product) credentials are
+      # intentionally NOT plumbed through — we standardize on OneAPI only.
+
+      - name: run ${{ inputs.terratest_action }} tests on Azure for ${{ matrix.path }}
+        if: inputs.cloud == 'azure'
+        timeout-minutes: ${{ inputs.apply_timeout }}
+        uses: ./.github/actions/terratest
+        env:
+          ARM_CLIENT_ID:        ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID:  ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:        ${{ secrets.AZURE_TENANT_ID }}
+          # Zscaler OneAPI (Zidentity)
+          ZSCALER_CLIENT_ID:     ${{ secrets.ZSCALER_CLIENT_ID }}
+          ZSCALER_CLIENT_SECRET: ${{ secrets.ZSCALER_CLIENT_SECRET }}
+          ZSCALER_VANITY_DOMAIN: ${{ secrets.ZSCALER_VANITY_DOMAIN }}
+          ZSCALER_CLOUD:         ${{ secrets.ZSCALER_CLOUD }}
+          ZPA_CUSTOMER_ID:       ${{ secrets.ZPA_CUSTOMER_ID }}
+        with:
+          tf_version: ${{ matrix.tf_version }}
+          path: ${{ matrix.path }}
+          terratest_action: ${{ inputs.terratest_action }}
+          pr-id: ${{ inputs.pr-id }}
+
+      - name: run tests on AWS
+        if: inputs.cloud == 'aws' && !contains(fromJson(env.cngfw_exclude), matrix.path)
+        timeout-minutes: ${{ inputs.apply_timeout }}
+        uses: ./.github/actions/terratest
+        env:
+          ASSUME_ROLE: ${{ secrets.ASSUME_ROLE }}
+          AWS_REGION:  ${{ vars.AWS_REGION }}
+          # Zscaler OneAPI (Zidentity)
+          ZSCALER_CLIENT_ID:     ${{ secrets.ZSCALER_CLIENT_ID }}
+          ZSCALER_CLIENT_SECRET: ${{ secrets.ZSCALER_CLIENT_SECRET }}
+          ZSCALER_VANITY_DOMAIN: ${{ secrets.ZSCALER_VANITY_DOMAIN }}
+          ZSCALER_CLOUD:         ${{ secrets.ZSCALER_CLOUD }}
+          ZPA_CUSTOMER_ID:       ${{ secrets.ZPA_CUSTOMER_ID }}
+        with:
+          tf_version: ${{ matrix.tf_version }}
+          path: ${{ matrix.path }}
+          terratest_action: ${{ inputs.terratest_action }}
+          pr-id: ${{ inputs.pr-id }}
+
+      - name: run tests on GCP
+        if: inputs.cloud == 'gcp'
+        timeout-minutes: ${{ inputs.apply_timeout }}
+        uses: ./.github/actions/terratest
+        env:
+          WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT:        ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          PROJECT_ID:                 ${{ secrets.PROJECT_ID }}
+          ORG_ID:                     ${{ secrets.ORG_ID }}
+          # Zscaler OneAPI (Zidentity)
+          ZSCALER_CLIENT_ID:     ${{ secrets.ZSCALER_CLIENT_ID }}
+          ZSCALER_CLIENT_SECRET: ${{ secrets.ZSCALER_CLIENT_SECRET }}
+          ZSCALER_VANITY_DOMAIN: ${{ secrets.ZSCALER_VANITY_DOMAIN }}
+          ZSCALER_CLOUD:         ${{ secrets.ZSCALER_CLOUD }}
+          ZPA_CUSTOMER_ID:       ${{ secrets.ZPA_CUSTOMER_ID }}
+        with:
+          tf_version: ${{ matrix.tf_version }}
+          path: ${{ matrix.path }}
+          terratest_action: ${{ inputs.terratest_action }}
+          pr-id: ${{ inputs.pr-id }}
+
+  cleanup:
+    needs: [terraform]
+    name: cleanup infrastructure in case of CI failure
+    if: cancelled() || failure()
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: cleanup Azure Subscription
+        if: inputs.cloud == 'azure'
+        uses: ./.github/actions/sub_cleanup
+        with:
+          pr-id: ${{ inputs.pr-id }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: cleanup AWS
+        if: inputs.cloud == 'aws'
+        run: echo AWS placeholder
+
+      - name: cleanup GCP
+        if: inputs.cloud == 'gcp'
+        uses: ./.github/actions/gcp_cleanup
+        with:
+          pr-id: ${{ inputs.pr-id }}
+        env:
+          WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}

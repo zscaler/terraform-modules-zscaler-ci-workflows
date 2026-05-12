@@ -1,0 +1,209 @@
+name: (sub) PR CI
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_call:
+    inputs:
+      terratest_action:
+        description: The action (name of a test in Terratest) that will be passed to the Makefile's ACTION parameter
+        type: string
+        required: true
+      fail_fast:
+        description: When set to true, GitHub will cancel all in-progress and queued jobs in the matrix if any job in the matrix fails.
+        type: boolean
+        default: true
+      validate_max_parallel:
+        description: Maximum parallel jobs in matrix strategy for running validation
+        type: number
+        default: 5
+      test_max_parallel:
+        description: Maximum parallel jobs in matrix strategy for running Terratest
+        type: number
+        default: 5
+      apply_timeout:
+        description: Maximum time to run the Terraform apply step
+        type: number
+        default: 30
+      tf_version:
+        description: A space delimited list of TF versions used to run the code with
+        type: string
+        default: latest
+      cloud:
+        description: "Decide against which public cloud the code will be run. Possible values: azure, aws, gcp"
+        type: string
+        required: true
+      pre-commit-hooks:
+        description: "Pre-commit hook list. Possible values are a combination of any of the following: terraform_fmt, terraform_docs, terraform_tflint, checkov (space spearated)."
+        type: string
+        default: terraform_fmt terraform_docs terraform_tflint checkov
+
+jobs:
+  tf_prereqs:
+    name: terraform modules discovery
+    runs-on: ubuntu-latest
+    outputs:
+      validate_paths: ${{ steps.format.outputs.validate_diff }}
+      plan_paths: ${{ steps.format.outputs.apply_diff }}
+      changed_files: ${{ steps.format.outputs.files_diff }}
+    steps:
+      - name: checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: get diff with base branch, modules
+        id: diff_modules
+        uses: tj-actions/changed-files@2f7c5bfce28377bc069a65ba478de0a74aa0ca32
+        with:
+          separator: "@"
+          files: modules/**/*.tf
+
+      - name: get diff with base branch, examples
+        id: diff_examples
+        uses: tj-actions/changed-files@2f7c5bfce28377bc069a65ba478de0a74aa0ca32
+        with:
+          separator: "@"
+          files: examples/**/*.tf
+
+      - name: get diff with base branch, examples, varfiles
+        id: diff_tfvars
+        uses: tj-actions/changed-files@2f7c5bfce28377bc069a65ba478de0a74aa0ca32
+        with:
+          separator: "@"
+          files: examples/**/*.tfvars
+
+      - name: extract paths for tasks
+        id: format
+        env:
+          DIFF_MODULES: ${{ steps.diff_modules.outputs.all_changed_files }}
+          DIFF_EXAMPLES: ${{ steps.diff_examples.outputs.all_changed_files }}
+          DIFF_TFVARS: ${{ steps.diff_tfvars.outputs.all_changed_files }}
+        shell: bash
+        run: |
+          DIFF_MODULES_ARRAY=(${DIFF_MODULES//@/ })
+          DIFF_EXAMPLES_ARRAY=(${DIFF_EXAMPLES//@/ })
+          DIFF_TFVARS_ARRAY=(${DIFF_TFVARS//@/ })
+
+
+          # extract folder names from DIFFS
+          DIRS_MODULES=()
+          for ELEMENT in ${DIFF_MODULES_ARRAY[*]}; do
+            DIRS_MODULES+=($(echo $ELEMENT | sed -E "s/^(modules)\/(.+)\/.*$/\1\/\2/" ))
+          done
+          # deduplicate paths
+          IFS=$'\n' DIRS_MODULES_DEDUP=($(sort -u <<< "${DIRS_MODULES[*]}"))
+          unset IFS
+
+
+          DIRS_EXAMPLES=()
+          for ELEMENT in ${DIFF_EXAMPLES_ARRAY[*]}; do
+            DIRS_EXAMPLES+=($(echo $ELEMENT | sed -E "s/^(examples)\/(.+)\/.*$/\1\/\2/" ))
+          done
+          # deduplicate paths
+          IFS=$'\n' DIRS_EXAMPLES_DEDUP=($(sort -u <<< "${DIRS_EXAMPLES[*]}"))
+          unset IFS
+
+
+          DIRS_TFVARS=()
+          for ELEMENT in ${DIFF_TFVARS_ARRAY[*]}; do
+            DIRS_TFVARS+=($(echo $ELEMENT | sed -E "s/^(examples)\/(.+)\/.*$/\1\/\2/" ))
+          done
+          # deduplicate paths
+          IFS=$'\n' DIRS_TFVARS_DEDUP=($(sort -u <<< "${DIRS_TFVARS[*]}"))
+          unset IFS
+
+
+          # use these paths to discover dependencies - find examples using modules from the list
+          EXAMPLES_DISCOVERED=()
+          for ELEMENT in ${DIRS_MODULES_DEDUP[*]}; do
+            EXAMPLES_DISCOVERED+=($(echo $(grep -rl "$ELEMENT" examples/*/main.tf | sed -E "s/^(examples\/.*)\/.*$/\1/g")))
+          done
+          # deduplicate list of example paths
+          IFS=$'\n' EXAMPLES_DISCOVERED_DEDUP=($(sort -u <<<  "${EXAMPLES_DISCOVERED[*]}"))
+          unset IFS
+
+
+          DIRS_VALIDATE=(${DIRS_MODULES_DEDUP[*]} ${DIRS_EXAMPLES_DEDUP[*]})
+          FILES_PRECOMMIT=(${DIFF_MODULES_ARRAY[*]} ${DIFF_EXAMPLES_ARRAY[*]} ${DIFF_TFVARS_ARRAY[*]})
+          DIRS_APPLY=(${DIRS_EXAMPLES_DEDUP[*]} ${EXAMPLES_DISCOVERED_DEDUP[*]} ${DIRS_TFVARS_DEDUP[*]})
+          IFS=$'\n' DIRS_APPLY_DEDUP=($(sort -u <<<  "${DIRS_APPLY[*]}"))
+          unset IFS
+
+          VALIDATE_DIFF=$(echo ${DIRS_VALIDATE[*]} | tr ' ' ',')
+          APPLY_DIFF=$(echo ${DIRS_APPLY_DEDUP[*]} | tr ' ' ',')
+
+          # a list of chagned paths, used for validation tasks
+          echo "validate_diff=$VALIDATE_DIFF" >> $GITHUB_OUTPUT
+          # a list of affected and changed examples, used for plan/apply tasks
+          echo "apply_diff=$APPLY_DIFF" >> $GITHUB_OUTPUT
+          # a list of changed files, used for pre-commit tasks
+          echo "files_diff=${FILES_PRECOMMIT[*]}" >> $GITHUB_OUTPUT
+
+  pre_commit:
+    name: Pre-Commit
+    needs: tf_prereqs
+    if: ${{ needs.tf_prereqs.outputs.changed_files != '' }}
+    uses: ./.github/workflows/_pre_commit.yml
+    with:
+      pre-commit-hooks: ${{ inputs.pre-commit-hooks }}
+      pre-commit-files: ${{ needs.tf_prereqs.outputs.changed_files }}
+
+  validate:
+    name: validate all changed modules
+    needs: tf_prereqs
+    if: ${{ needs.tf_prereqs.outputs.validate_paths != '' }}
+    uses: ./.github/workflows/_tf_test.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      cloud: ${{ inputs.cloud }}
+      tf_version: ${{ inputs.tf_version }}
+      paths: ${{ needs.tf_prereqs.outputs.validate_paths }}
+      terratest_action: Validate
+      fail_fast: ${{ inputs.fail_fast }}
+      max_parallel: ${{ inputs.validate_max_parallel }}
+    secrets: inherit
+
+  test:
+    name: run ${{ inputs.terratest_action }} tests on examples
+    needs:
+      - pre_commit
+      - validate
+      - tf_prereqs
+    if: ${{ needs.tf_prereqs.outputs.plan_paths != '' }}
+    uses: ./.github/workflows/_tf_test.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      cloud: ${{ inputs.cloud }}
+      tf_version: ${{ inputs.tf_version }}
+      paths: ${{ needs.tf_prereqs.outputs.plan_paths }}
+      terratest_action: ${{ inputs.terratest_action }}
+      fail_fast: ${{ inputs.fail_fast }}
+      max_parallel: ${{ inputs.test_max_parallel }}
+      apply_timeout: ${{ inputs.apply_timeout }}
+      pr-id: ${{ github.event.number }}
+    secrets: inherit
+
+  branch_protection_junction:
+    name: junction point for branch protection
+    needs:
+      - validate
+      - pre_commit
+      - test
+    if: always()
+    permissions:
+      actions: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: check statuses of other jobs
+        uses: technote-space/workflow-conclusion-action@45ce8e0eb155657ab8ccf346ade734257fd196a5 # v3
+
+      - name: branch protection check validation point
+        run: |
+          if [[ "$WORKFLOW_CONCLUSION" == "failure" ]]; then exit 1; fi
