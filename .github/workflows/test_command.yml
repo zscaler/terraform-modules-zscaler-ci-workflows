@@ -54,7 +54,7 @@ jobs:
       paths: ${{ steps.paths_reformat.outputs.paths }}
     steps:
       - name: add comment
-        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           comment-id: ${{ inputs.comment-id }}
           issue-number: ${{ inputs.pr-id }}
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: add comment
-        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           comment-id: ${{ inputs.comment-id }}
           issue-number: ${{ inputs.pr-id }}
