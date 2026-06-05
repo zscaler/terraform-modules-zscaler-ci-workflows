@@ -113,9 +113,9 @@ jobs:
         timeout-minutes: ${{ inputs.apply_timeout }}
         uses: ./.github/actions/terratest
         env:
-          ARM_CLIENT_ID:        ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_SUBSCRIPTION_ID:  ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID:        ${{ secrets.AZURE_TENANT_ID }}
+          ARM_CLIENT_ID:        ${{ secrets.ARM_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID:  ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:        ${{ secrets.ARM_TENANT_ID }}
           # Zscaler OneAPI (Zidentity)
           ZSCALER_CLIENT_ID:     ${{ secrets.ZSCALER_CLIENT_ID }}
           ZSCALER_CLIENT_SECRET: ${{ secrets.ZSCALER_CLIENT_SECRET }}
@@ -191,9 +191,9 @@ jobs:
         with:
           pr-id: ${{ inputs.pr-id }}
         env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
 
       - name: cleanup AWS
         if: inputs.cloud == 'aws'
